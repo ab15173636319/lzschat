@@ -2,7 +2,7 @@
 
 基于 HarmonyOS ArkTS 的聊天应用：主页 + 抽屉式侧边栏 + 接入任意 OpenAI 兼容服务的流式对话，支持多套模型、多会话、自定义提示词，全部数据本地持久化。
 
-- 运行时：HarmonyOS（`compatibleSdkVersion 6.1.1(24)`，`targetSdkVersion 26.0.0`），仅手机
+- 开发环境：DevEco Studio + HarmonyOS SDK **6.1.1(24)**（`build-profile.json5` 中 `compatibleSdkVersion = "6.1.1(24)"`，`targetSdkVersion = "26.0.0"`），仅手机
 - 网络权限：`ohos.permission.INTERNET`（`entry/src/main/module.json5` 已声明）
 - 技术栈：`@ComponentV2` / `@ObservedV2` / `@Trace` 状态管理，`@kit.NetworkKit` 流式请求，`PersistenceV2` 本地存储
 
@@ -52,7 +52,7 @@
 
 ## 快速开始
 
-1. 用 DevEco Studio 打开工程，等待 `oh_modules` 同步完成。
+1. 用 DevEco Studio 打开工程（SDK 使用 **6.1.1(24)**），等待 `oh_modules` 同步完成。
 2. 运行到真机 / 模拟器。
 3. 点击 Header 右侧的模型按钮 →「+ 新增模型」，填写：
    - **名称**：任意，如「DeepSeek 官方」
