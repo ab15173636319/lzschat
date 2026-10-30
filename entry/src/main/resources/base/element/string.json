@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "lzschat"
+    },
+    {
+      "name": "READ_MEDIA_reason",
+      "value": "读本地文档"
+    }
+  ]
+}

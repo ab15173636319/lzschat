@@ -1,0 +1,76 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#000000"
+    },
+    {
+      "name": "primary_font_color",
+      "value": "#ffffff"
+    },
+    {
+      "name": "input_area_bg",
+      "value": "#1C1C1E"
+    },
+    {
+      "name": "input_area_border",
+      "value": "#3A3A3D"
+    },
+    {
+      "name": "slider_bg",
+      "value": "#121214"
+    },
+    {
+      "name": "bubble_ai_bg",
+      "value": "#1F1F22"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#9A9AA0"
+    },
+    {
+      "name": "divider_color",
+      "value": "#2C2C2F"
+    },
+    {
+      "name": "error_text",
+      "value": "#FF8A80"
+    },
+    {
+      "name": "error_bg",
+      "value": "#2A1614"
+    },
+    {
+      "name": "input_placeholder",
+      "value": "#6F6F76"
+    },
+    {
+      "name": "card_bg",
+      "value": "#1C1C1E"
+    },
+    {
+      "name": "card_border",
+      "value": "#333336"
+    },
+    {
+      "name": "card_sub_bg",
+      "value": "#2A2A2D"
+    },
+    {
+      "name": "role_accent",
+      "value": "#D6B25E"
+    },
+    {
+      "name": "ai_line",
+      "value": "#4A4A50"
+    },
+    {
+      "name": "note_text",
+      "value": "#A5A5AD"
+    },
+    {
+      "name": "send_disabled",
+      "value": "#3A3A3E"
+    }
+  ]
+}
