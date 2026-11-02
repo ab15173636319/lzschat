@@ -10,17 +10,23 @@ export default struct Main {
   @Local keyboardIsShow: boolean = false
 
   aboutToAppear(): void {
-    window.getLastWindow(this.getUIContext().getHostContext()).then((currentWindow) => {
-      currentWindow.on('keyboardHeightChange', (data: number) => {
-        if (data > 0) {
-          this.keyboardIsShow = true
-          console.info('键盘已弹出，高度：' + data);
-        } else {
-          this.keyboardIsShow = false
-          console.info('键盘已收起');
-        }
+    try {
+      window.getLastWindow(this.getUIContext().getHostContext()).then((currentWindow) => {
+        currentWindow.on('keyboardHeightChange', (data: number) => {
+          if (data > 0) {
+            this.keyboardIsShow = true
+            console.info('键盘已弹出，高度：' + data);
+          } else {
+            this.keyboardIsShow = false
+            console.info('键盘已收起');
+          }
+        });
+      }).catch((err: Error) => {
+        console.error('监听键盘高度失败: ' + JSON.stringify(err));
       });
-    });
+    } catch (err) {
+      console.error('获取窗口失败: ' + JSON.stringify(err));
+    }
   }
 
   hideKeyboard() {

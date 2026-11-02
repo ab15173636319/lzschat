@@ -40,8 +40,16 @@
 ### 提示词
 
 - **系统提示词**：可保存多套，点选一套作用于所有对话，作为每次请求的首条 `system` 消息；至少保留一套
+- **通用 + 自定义**：每套系统提示词由「通用提示词（所有提示词共用）」和「自定义提示词（本套专属）」组成，最终 `system` 内容 = 通用 + 自定义
+- **自动生成选项**：编辑系统提示词时可打开 Switch 开关；开启后每次回复结束，会用同一模型再发一次非流式请求，基于最近对话（+ 向量库检索到的历史片段）生成 3 条用户候选项，显示在输入框上方，点击即发送
 - **常用提示词**：保存在本地，作为新对话空态的快捷发送按钮，点击即作为用户消息发出
 - 首次启动预置 3 套系统提示词（通用助手 / 代码助手 / 翻译润色）与 3 条常用提示词
+
+### 长期记忆（简单向量库）
+
+- `SimpleVectorStore` 在内存中索引所有会话最近 150 条消息（总量上限 3000 条），中文按「单字 + 二元组」、英文按整词构造词频向量，用余弦相似度检索
+- 每次组装请求时，用最新用户消息检索最相关的历史片段（top3、相似度阈值 0.08），合并进 `system` 消息作为长期记忆；跨会话的历史也能被召回
+- 索引按「会话数 + 消息数 + 最近更新时间」签名懒重建，无需额外持久化；生成 3 条候选选项时同样会带上这段记忆
 
 ### 其他
 
@@ -90,8 +98,9 @@ entry/src/main/ets
 │   ├── AiSettings.ets         # 多模型配置集合 + 旧版迁移 + 持久化
 │   └── ModelProfile.ets       # 单个模型配置（URL 补全、参数裁剪）
 ├── service
-│   ├── ChatService.ets        # OpenAI 兼容流式请求 + SSE 解析 + 错误文案
-│   └── BalanceService.ets     # DeepSeek 余额查询
+│   ├── ChatService.ets        # OpenAI 兼容流式请求 + SSE 解析 + 非流式补全 + 错误文案
+│   ├── BalanceService.ets     # DeepSeek 余额查询
+│   └── SimpleVectorStore.ets  # 简单向量库：历史对话相似度检索
 ├── utils
 │   ├── ChatTextParser.ets     # 括号旁白解析，拆分正文 / 旁白片段
 │   ├── Clipboard.ets          # 会话文本格式化 + 系统剪贴板
@@ -150,7 +159,7 @@ ChatStore ──► Conversation.messages（追加 user 消息）
 | --- | --- |
 | `lzs_conversations` | `{ activeId, conversations: [{ id, title, createdAt, updatedAt, messages: [{ id, role, content, status, error, createdAt }] }] }` |
 | `lzs_ai_settings` | `{ activeId, profiles: [{ id, name, baseUrl, apiKey, model, temperature, contextMessages, maxTokens }] }` |
-| `lzs_prompts` | `{ activeSystemId, systemPrompts: [{ id, name, content }], userPrompts: [...] }` |
+| `lzs_prompts` | `{ activeSystemId, commonPrompt, systemPrompts: [{ id, name, content, autoOptions }], userPrompts: [...] }` |
 
 - 写入时机：发送消息、回复结束/停止、切换/新建/删除会话、修改消息、修改模型或提示词——每次变更后调用 `PersistenceV2.save(key)` 立即落盘
 - 流式生成过程中**不**逐字落盘，强杀应用可能丢失当前未完成的一段回复；下次启动时该消息按内容判定为「完成」或「上次回复被中断」
@@ -169,6 +178,8 @@ ChatStore ──► Conversation.messages（追加 user 消息）
 | 最大回复 tokens | 0–32768，0 表示交给服务端默认值 | `ModelProfile.resolveMaxTokens()` |
 | 单次响应上限 | 8 MB，超出立即中断并提示数据异常 | `ChatService.MAX_BODY_LENGTH` |
 | 超时 | 连接 30s；`readTimeout = 0`（SSE 两次数据间可能长时间静默，避免 60s 误杀） | `ChatService` |
+| 向量索引 | 每个会话最近 150 条、总量 3000 条、命中 top3、相似度阈值 0.08 | `SimpleVectorStore` |
+| 候选选项 | 每次 3 条，单条最多 40 字 | `useChat.parseOptionLines` |
 
 ## 实现要点
 
@@ -176,6 +187,8 @@ ChatStore ──► Conversation.messages（追加 user 消息）
 - **并发安全**：`ChatService` 维护请求代际 token（`cancel()` 自增），`ChatStore` 维护请求序号（`requestSeq`），回调里的旧请求一律丢弃，停止或切会话后立刻发新消息不会串数据
 - **流式渲染性能**：消息列表用 `message.id` 作稳定 key，流式追加内容时不重建整个列表；仅靠 `@Trace` 字段与 `tick` 版本号驱动滚动
 - **历史裁剪**：`buildHistory()` 从最新往前收集，跳过空内容、错误状态与正在生成的占位消息，跳过当前 AI 占位消息自身；超过字符预算即停止，保证最新一轮一定带上
+- **向量记忆**：`buildHistory()` 调用 `SimpleVectorStore` 检索相关历史片段，并把记忆合并进 system 消息（兼容只接受单条 system 的服务）；检索结果排除已在最近上下文里的消息，避免重复
+- **候选选项**：`ChatService.complete()` 走非流式 `request`；返回文本按行去掉序号/符号后取前 3 条；`suggestedOptions` 在发送、停止、切换会话时自动清空，并用序号防止旧请求覆盖新选项
 - **括号旁白**：`parseChatText()` 逐个字符扫描 `(` / `（` 到最近的 `)` / `）`；未闭合时剩余文本暂按正文显示（流式中常见），闭合后自动切换成旁白
 - **长按识别**：会话行用「手动 450ms 计时器 + `LongPressGesture`」双保险触发菜单，手指移动超过 15vp 视为滚动列表并取消，避免误触
 - **交互保护**：会话菜单打开后 400ms 内忽略遮罩点击；长按后 800ms 内抑制长按松手触发的点击；消息菜单用自增序号 + 2s 定时器，重复打开不会误关；点击非最后一条用户消息的「修改」时提示「只能修改最后一条用户消息」

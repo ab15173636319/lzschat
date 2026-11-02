@@ -25,6 +25,16 @@ export interface ChatStreamOptions {
   onDelta: (delta: string) => void
 }
 
+/** 非流式补全参数（自动生成选项等轻量请求用） */
+export interface ChatCompleteOptions {
+  url: string
+  apiKey: string
+  model: string
+  temperature: number
+  maxTokens: number
+  messages: ChatApiMessage[]
+}
+
 /** SSE 数据块结构（OpenAI 兼容协议） */
 interface ChunkDelta {
   role?: string
@@ -294,6 +304,65 @@ export class ChatService {
         options.onDelta(fallback)
       }
     }
+  }
+
+  /**
+   * 非流式补全，用于「自动生成 3 条选项」这类轻量请求。
+   * 返回 assistant 的完整文本。
+   */
+  async complete(options: ChatCompleteOptions): Promise<string> {
+    if (options.url.length === 0) {
+      throw new Error('接口地址为空')
+    }
+    if (options.apiKey.trim().length === 0) {
+      throw new Error('请先填写 API Key')
+    }
+    const body: ChatCompletionBody = {
+      model: options.model,
+      messages: options.messages,
+      stream: false,
+      temperature: options.temperature
+    }
+    if (options.maxTokens > 0) {
+      body.max_tokens = options.maxTokens
+    }
+    const request = http.createHttp()
+    let response: http.HttpResponse
+    try {
+      response = await request.request(options.url, {
+        method: http.RequestMethod.POST,
+        header: this.buildHeader(options.apiKey),
+        extraData: JSON.stringify(body),
+        expectDataType: http.HttpDataType.STRING,
+        connectTimeout: 20000,
+        readTimeout: 60000,
+        usingCache: false
+      })
+    } catch (e) {
+      request.destroy()
+      throw new Error(describeNetworkError(e))
+    }
+    request.destroy()
+
+    const statusCode = response.responseCode
+    const rawBody = response.result as string
+    if (statusCode < 200 || statusCode >= 300) {
+      throw new Error(describeApiError(rawBody, statusCode))
+    }
+    let parsed: CompletionResponse
+    try {
+      parsed = JSON.parse(rawBody) as CompletionResponse
+    } catch (e) {
+      throw new Error('AI 返回格式异常')
+    }
+    const choices = parsed.choices
+    if (choices !== undefined && choices.length > 0) {
+      const message = choices[0].message
+      if (message !== undefined && message.content !== undefined && message.content.length > 0) {
+        return message.content
+      }
+    }
+    throw new Error('AI 没有返回内容')
   }
 
   private buildHeader(apiKey: string): Object {

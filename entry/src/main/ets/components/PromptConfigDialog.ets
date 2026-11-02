@@ -5,8 +5,9 @@ import { PromptDialogState, usePromptDialog } from '../store/usePromptDialog'
 /**
  * 提示词弹窗
  *
- * - 系统提示词：可保存多套，点选一套作用于所有对话
+ * - 系统提示词：可保存多套，每套 = 通用提示词（所有提示词共用）+ 自定义提示词
  * - 常用提示词：新对话空态展示的快捷发送项，可保存多条
+ * - 系统提示词可开启「自动生成 3 条选项」开关
  */
 @ComponentV2
 export default struct PromptConfigDialog {
@@ -20,6 +21,12 @@ export default struct PromptConfigDialog {
   @Local editingId: string = ''
   @Local draftName: string = ''
   @Local draftContent: string = ''
+  /** 通用提示词：所有系统提示词共用 */
+  @Local draftCommon: string = ''
+  /** 是否开启自动生成 3 条选项 */
+  @Local draftAutoOptions: boolean = false
+  /** 是否正在单独编辑通用提示词 */
+  @Local editingCommon: boolean = false
 
   aboutToAppear(): void {
     try {
@@ -45,11 +52,19 @@ export default struct PromptConfigDialog {
     return oneLine.length > 16 ? `${oneLine.substring(0, 16)}…` : oneLine
   }
 
+  private commonPreview(): string {
+    const oneLine = this.settings.commonPrompt.split('\n').join(' ').trim()
+    return oneLine.length > 80 ? `${oneLine.substring(0, 80)}…` : oneLine
+  }
+
   private startCreate(type: number): void {
     this.editingType = type
     this.editingId = ''
     this.draftName = ''
     this.draftContent = ''
+    this.draftCommon = this.settings.commonPrompt
+    this.draftAutoOptions = false
+    this.editingCommon = false
     this.editing = true
   }
 
@@ -58,6 +73,21 @@ export default struct PromptConfigDialog {
     this.editingId = item.id
     this.draftName = item.name
     this.draftContent = item.content
+    this.draftCommon = this.settings.commonPrompt
+    this.draftAutoOptions = item.autoOptions
+    this.editingCommon = false
+    this.editing = true
+  }
+
+  /** 单独编辑通用提示词（所有系统提示词共用） */
+  private startEditCommon(): void {
+    this.editingType = 0
+    this.editingId = ''
+    this.editingCommon = true
+    this.draftName = ''
+    this.draftContent = ''
+    this.draftCommon = this.settings.commonPrompt
+    this.draftAutoOptions = false
     this.editing = true
   }
 
@@ -69,15 +99,33 @@ export default struct PromptConfigDialog {
   }
 
   private saveDraft(): void {
+    if (this.editingCommon) {
+      this.settings.commonPrompt = this.draftCommon.trim()
+      persistPrompts(this.settings)
+      this.toast('通用提示词已保存')
+      this.dialog.close()
+      return
+    }
     const content = this.draftContent.trim()
-    if (content.length === 0) {
+    if (this.editingType === 0) {
+      if (content.length === 0 && this.draftCommon.trim().length === 0) {
+        this.toast('请填写通用或自定义提示词')
+        return
+      }
+    } else if (content.length === 0) {
       this.toast('提示词内容不能为空')
       return
     }
-    const name = this.draftName.trim().length > 0 ? this.draftName.trim() : this.autoName(content)
+    const nameSource = content.length > 0 ? content : this.draftCommon
+    const name = this.draftName.trim().length > 0 ? this.draftName.trim() : this.autoName(nameSource)
+
+    if (this.editingType === 0) {
+      this.settings.commonPrompt = this.draftCommon.trim()
+    }
 
     if (this.editingId.length === 0) {
       const item = new PromptItem(name, content)
+      item.autoOptions = this.editingType === 0 ? this.draftAutoOptions : false
       if (this.editingType === 0) {
         this.settings.addSystem(item)
         this.toast(`已添加系统提示词：${name}`)
@@ -95,6 +143,7 @@ export default struct PromptConfigDialog {
       existing.name = name
       existing.content = content
       if (this.editingType === 0) {
+        existing.autoOptions = this.draftAutoOptions
         this.settings.updateSystem(existing)
       } else {
         this.settings.updateUser(existing)
@@ -197,10 +246,42 @@ export default struct PromptConfigDialog {
       Scroll() {
         Column({ space: 8 }) {
           if (this.tab === 0) {
+            // 通用提示词：所有系统提示词共用
+            Column({ space: 4 }) {
+              Row() {
+                Text('通用提示词（所有提示词共用）')
+                  .layoutWeight(1)
+                  .fontSize(12)
+                  .fontColor($r("app.color.text_secondary"))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Button('编辑')
+                  .fontSize(12)
+                  .fontColor($r("app.color.text_secondary"))
+                  .backgroundColor(Color.Transparent)
+                  .height(28)
+                  .padding({ left: 8, right: 8 })
+                  .onClick(() => this.startEditCommon())
+              }
+              .width("100%")
+
+              Text(this.settings.commonPrompt.trim().length > 0 ?
+                this.commonPreview() : '未设置，新增/编辑系统提示词时可一并填写')
+                .width("100%")
+                .fontSize(11)
+                .fontColor($r("app.color.text_secondary"))
+                .maxLines(2)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .width("100%")
+            .padding({ left: 12, right: 6, top: 10, bottom: 10 })
+            .borderRadius(14)
+            .backgroundColor($r("app.color.card_sub_bg"))
+
             ForEach(this.settings.systemPrompts, (item: PromptItem) => {
               this.buildSystemRow(item)
             }, (item: PromptItem) =>
-              `${item.id}-${item.name}-${item.content}-${this.settings.activeSystemId === item.id ? '1' : '0'}`)
+              `${item.id}-${item.name}-${item.content}-${this.settings.activeSystemId === item.id ? '1' : '0'}-${item.autoOptions ? '1' : '0'}`)
           } else {
             ForEach(this.settings.userPrompts, (item: PromptItem) => {
               this.buildUserRow(item)
@@ -272,12 +353,24 @@ export default struct PromptConfigDialog {
         .height(18)
 
         Column({ space: 3 }) {
-          Text(item.displayName)
-            .width("100%")
-            .fontSize(14)
-            .fontColor($r("app.color.primary_font_color"))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Row({ space: 6 }) {
+            Text(item.displayName)
+              .layoutWeight(1)
+              .fontSize(14)
+              .fontColor($r("app.color.primary_font_color"))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            if (item.autoOptions) {
+              Text('自动选项')
+                .fontSize(10)
+                .fontColor($r("app.color.role_accent"))
+                .backgroundColor($r("app.color.card_sub_bg"))
+                .borderRadius(4)
+                .padding({ left: 4, right: 4, top: 1, bottom: 1 })
+            }
+          }
+          .width("100%")
+
           Text(item.preview)
             .width("100%")
             .fontSize(11)
@@ -389,74 +482,184 @@ export default struct PromptConfigDialog {
 
       Scroll() {
         Column({ space: 14 }) {
-          Column({ space: 6 }) {
-            Text('名称')
-              .width("100%")
-              .fontSize(12)
-              .fontColor($r("app.color.text_secondary"))
-            TextInput({
-              text: this.draftName,
-              placeholder: this.editingType === 0 ? '例如 代码助手' : '例如 自我介绍'
-            })
-              .width("100%")
-              .height(42)
-              .fontSize(14)
-              .fontColor($r("app.color.primary_font_color"))
-              .placeholderColor($r("app.color.input_placeholder"))
-              .backgroundColor($r("app.color.card_sub_bg"))
-              .borderRadius(10)
-              .padding({ left: 12, right: 12 })
-              .onChange((value: string) => {
-                this.draftName = value
+          if (this.editingCommon) {
+            Column({ space: 6 }) {
+              Text('通用提示词')
+                .width("100%")
+                .fontSize(12)
+                .fontColor($r("app.color.text_secondary"))
+              TextArea({
+                text: this.draftCommon,
+                placeholder: '例如：始终保持简洁、自然的中文表达，不要机械感…'
               })
-            Text('留空时会自动用内容开头作为名称')
-              .width("100%")
-              .fontSize(11)
-              .fontColor($r("app.color.text_secondary"))
-          }
-          .width("100%")
+                .width("100%")
+                .height(180)
+                .fontSize(14)
+                .fontColor($r("app.color.primary_font_color"))
+                .placeholderColor($r("app.color.input_placeholder"))
+                .backgroundColor($r("app.color.card_sub_bg"))
+                .borderRadius(10)
+                .padding(12)
+                .maxLength(4000)
+                .onChange((value: string) => {
+                  this.draftCommon = value
+                })
+              Text('所有系统提示词都会在这段通用提示词之后，追加各自的自定义内容')
+                .width("100%")
+                .fontSize(11)
+                .fontColor($r("app.color.text_secondary"))
+            }
+            .width("100%")
+          } else {
+            Column({ space: 6 }) {
+              Text('名称')
+                .width("100%")
+                .fontSize(12)
+                .fontColor($r("app.color.text_secondary"))
+              TextInput({
+                text: this.draftName,
+                placeholder: this.editingType === 0 ? '例如 代码助手' : '例如 自我介绍'
+              })
+                .width("100%")
+                .height(42)
+                .fontSize(14)
+                .fontColor($r("app.color.primary_font_color"))
+                .placeholderColor($r("app.color.input_placeholder"))
+                .backgroundColor($r("app.color.card_sub_bg"))
+                .borderRadius(10)
+                .padding({ left: 12, right: 12 })
+                .onChange((value: string) => {
+                  this.draftName = value
+                })
+              Text('留空时会自动用内容开头作为名称')
+                .width("100%")
+                .fontSize(11)
+                .fontColor($r("app.color.text_secondary"))
+            }
+            .width("100%")
 
-          Column({ space: 6 }) {
-            Text('内容')
+            if (this.editingType === 0) {
+              Column({ space: 6 }) {
+                Text('通用提示词（所有提示词共用）')
+                  .width("100%")
+                  .fontSize(12)
+                  .fontColor($r("app.color.text_secondary"))
+                TextArea({
+                  text: this.draftCommon,
+                  placeholder: '例如：始终保持简洁、自然的中文表达，不要机械感…'
+                })
+                  .width("100%")
+                  .height(110)
+                  .fontSize(14)
+                  .fontColor($r("app.color.primary_font_color"))
+                  .placeholderColor($r("app.color.input_placeholder"))
+                  .backgroundColor($r("app.color.card_sub_bg"))
+                  .borderRadius(10)
+                  .padding(12)
+                  .maxLength(4000)
+                  .onChange((value: string) => {
+                    this.draftCommon = value
+                  })
+                Text('每个系统提示词都会使用这段通用提示词')
+                  .width("100%")
+                  .fontSize(11)
+                  .fontColor($r("app.color.text_secondary"))
+              }
               .width("100%")
-              .fontSize(12)
-              .fontColor($r("app.color.text_secondary"))
-            TextArea({
-              text: this.draftContent,
-              placeholder: this.editingType === 0 ?
-                '例如：你是一名资深软件工程师，回答技术问题时…' :
-                '例如：帮我解释一下这段代码'
-            })
+
+              Column({ space: 6 }) {
+                Text('自定义提示词')
+                  .width("100%")
+                  .fontSize(12)
+                  .fontColor($r("app.color.text_secondary"))
+                TextArea({
+                  text: this.draftContent,
+                  placeholder: '例如：你是一名资深软件工程师，回答技术问题时…'
+                })
+                  .width("100%")
+                  .height(140)
+                  .fontSize(14)
+                  .fontColor($r("app.color.primary_font_color"))
+                  .placeholderColor($r("app.color.input_placeholder"))
+                  .backgroundColor($r("app.color.card_sub_bg"))
+                  .borderRadius(10)
+                  .padding(12)
+                  .maxLength(4000)
+                  .onChange((value: string) => {
+                    this.draftContent = value
+                  })
+                Text('最终系统提示词 = 通用提示词 + 自定义提示词')
+                  .width("100%")
+                  .fontSize(11)
+                  .fontColor($r("app.color.text_secondary"))
+              }
               .width("100%")
-              .height(150)
-              .fontSize(14)
-              .fontColor($r("app.color.primary_font_color"))
-              .placeholderColor($r("app.color.input_placeholder"))
-              .backgroundColor($r("app.color.card_sub_bg"))
-              .borderRadius(10)
+
+              Row({ space: 12 }) {
+                Column({ space: 2 }) {
+                  Text('自动生成 3 条选项')
+                    .width("100%")
+                    .fontSize(13)
+                    .fontColor($r("app.color.primary_font_color"))
+                  Text('开启后，每次回复结束会结合历史对话生成 3 条候选项供点击发送')
+                    .width("100%")
+                    .fontSize(11)
+                    .lineHeight(16)
+                    .fontColor($r("app.color.text_secondary"))
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+
+                Toggle({ type: ToggleType.Switch, isOn: this.draftAutoOptions })
+                  .selectedColor($r("app.color.primary_font_color"))
+                  .onChange((isOn: boolean) => {
+                    this.draftAutoOptions = isOn
+                  })
+              }
+              .width("100%")
               .padding(12)
-              .maxLength(4000)
-              .onChange((value: string) => {
-                this.draftContent = value
-              })
-            Text(this.editingType === 0 ?
-              '系统提示词会作为每次请求的 system message 发送' :
-              '点击空态中的快捷提示词时，会直接发送这段内容')
+              .backgroundColor($r("app.color.card_sub_bg"))
+              .borderRadius(12)
+            } else {
+              Column({ space: 6 }) {
+                Text('内容')
+                  .width("100%")
+                  .fontSize(12)
+                  .fontColor($r("app.color.text_secondary"))
+                TextArea({
+                  text: this.draftContent,
+                  placeholder: '例如：帮我解释一下这段代码'
+                })
+                  .width("100%")
+                  .height(150)
+                  .fontSize(14)
+                  .fontColor($r("app.color.primary_font_color"))
+                  .placeholderColor($r("app.color.input_placeholder"))
+                  .backgroundColor($r("app.color.card_sub_bg"))
+                  .borderRadius(10)
+                  .padding(12)
+                  .maxLength(4000)
+                  .onChange((value: string) => {
+                    this.draftContent = value
+                  })
+                Text('点击空态中的快捷提示词时，会直接发送这段内容')
+                  .width("100%")
+                  .fontSize(11)
+                  .fontColor($r("app.color.text_secondary"))
+              }
               .width("100%")
-              .fontSize(11)
-              .fontColor($r("app.color.text_secondary"))
-          }
-          .width("100%")
+            }
 
-          if (this.editingId.length > 0) {
-            Button(this.editingType === 0 ? '删除这套系统提示词' : '删除这条常用提示词')
-              .width("100%")
-              .height(38)
-              .fontSize(13)
-              .fontColor($r("app.color.error_text"))
-              .backgroundColor(Color.Transparent)
-              .margin({ top: 4 })
-              .onClick(() => this.deleteCurrent())
+            if (this.editingId.length > 0) {
+              Button(this.editingType === 0 ? '删除这套系统提示词' : '删除这条常用提示词')
+                .width("100%")
+                .height(38)
+                .fontSize(13)
+                .fontColor($r("app.color.error_text"))
+                .backgroundColor(Color.Transparent)
+                .margin({ top: 4 })
+                .onClick(() => this.deleteCurrent())
+            }
           }
         }
         .width("100%")
@@ -470,6 +673,9 @@ export default struct PromptConfigDialog {
   }
 
   private editorTitle(): string {
+    if (this.editingCommon) {
+      return '编辑通用提示词'
+    }
     if (this.editingType === 0) {
       return this.editingId.length === 0 ? '新增系统提示词' : '编辑系统提示词'
     }

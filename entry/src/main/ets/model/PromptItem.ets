@@ -8,8 +8,10 @@ export class PromptItem {
   @Trace id: string = ''
   /** 显示名称，留空时自动取自内容 */
   @Trace name: string = ''
-  /** 提示词正文 */
+  /** 提示词正文（系统提示词里的「自定义」部分） */
   @Trace content: string = ''
+  /** 是否自动生成 3 条与历史对话相关的选项（仅系统提示词使用） */
+  @Trace autoOptions: boolean = false
 
   constructor(name: string, content: string) {
     PromptItem.seq += 1
@@ -42,5 +44,6 @@ export class PromptItem {
   copyFrom(other: PromptItem): void {
     this.name = other.name
     this.content = other.content
+    this.autoOptions = other.autoOptions
   }
 }

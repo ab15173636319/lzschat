@@ -13,10 +13,13 @@ interface PromptDto {
   id?: string
   name?: string
   content?: string
+  autoOptions?: boolean
 }
 
 interface PromptsDto {
   activeSystemId?: string
+  /** 通用提示词：每一套系统提示词都会拼在自定义提示词前面 */
+  commonPrompt?: string
   systemPrompts?: PromptDto[]
   userPrompts?: PromptDto[]
 }
@@ -43,6 +46,8 @@ export class PromptSettings {
   @Trace systemPrompts: PromptItem[] = []
   @Trace userPrompts: PromptItem[] = []
   @Trace activeSystemId: string = ''
+  /** 通用提示词：每一套系统提示词都会拼在自定义提示词前面 */
+  @Trace commonPrompt: string = ''
 
   /** 当前生效的系统提示词，找不到时回退到第一套 */
   get activeSystemPrompt(): PromptItem | null {
@@ -52,6 +57,12 @@ export class PromptSettings {
       }
     }
     return this.systemPrompts.length > 0 ? this.systemPrompts[0] : null
+  }
+
+  /** 当前提示词是否开启「自动生成 3 条选项」 */
+  get autoOptionsEnabled(): boolean {
+    const item = this.activeSystemPrompt
+    return item !== null && item.autoOptions
   }
 
   get activeSystemName(): string {
@@ -159,16 +170,23 @@ export class PromptSettings {
 }
 
 function promptToDto(item: PromptItem): PromptDto {
-  const dto: PromptDto = { id: item.id, name: item.name, content: item.content }
+  const dto: PromptDto = {
+    id: item.id,
+    name: item.name,
+    content: item.content,
+    autoOptions: item.autoOptions
+  }
   return dto
 }
 
 function promptFromDto(dto: PromptDto): PromptItem {
-  return PromptItem.restore(
+  const item = PromptItem.restore(
     dto.name !== undefined ? dto.name : '',
     dto.content !== undefined ? dto.content : '',
     dto.id !== undefined ? dto.id : ''
   )
+  item.autoOptions = dto.autoOptions !== undefined ? dto.autoOptions : false
+  return item
 }
 
 /** 写入 PersistenceV2 */
@@ -184,6 +202,7 @@ export function persistPrompts(settings: PromptSettings): void {
     }
     const dto: PromptsDto = {
       activeSystemId: settings.activeSystemId,
+      commonPrompt: settings.commonPrompt,
       systemPrompts: systemPrompts,
       userPrompts: userPrompts
     }
@@ -218,6 +237,7 @@ function loadPrompts(): PromptSettings {
   if (raw.length > 0) {
     try {
       const dto = JSON.parse(raw) as PromptsDto
+      settings.commonPrompt = dto.commonPrompt !== undefined ? dto.commonPrompt : ''
       const systemList = dto.systemPrompts
       const userList = dto.userPrompts
       if (systemList !== undefined && systemList.length > 0) {
