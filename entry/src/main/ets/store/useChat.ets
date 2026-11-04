@@ -122,8 +122,12 @@ export class ChatStore {
   /** 清空自动生成的选项（发送、切换、停止等场景） */
   clearSuggestions(): void {
     this.suggestionSeq += 1
+    const hadOptions = this.suggestedOptions.length > 0 || this.optionsLoading
     this.suggestedOptions = []
     this.optionsLoading = false
+    if (hadOptions) {
+      this.tick += 1
+    }
   }
 
   // ---------------- 会话操作 ----------------
@@ -544,6 +548,7 @@ export class ChatStore {
     }
     const seq = ++this.suggestionSeq
     this.optionsLoading = true
+    this.tick += 1
     try {
       const request: ChatCompleteOptions = {
         url: profile.resolveChatUrl(),
@@ -565,6 +570,7 @@ export class ChatStore {
     } finally {
       if (seq === this.suggestionSeq) {
         this.optionsLoading = false
+        this.tick += 1
       }
     }
   }

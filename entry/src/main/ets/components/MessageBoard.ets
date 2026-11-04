@@ -61,6 +61,16 @@ export default struct MessageBoard {
               MessageBubble({ message: message })
             }
           }, (message: ChatMessage) => message.id)
+
+          if (this.chat.optionsLoading && !this.chat.isSending) {
+            ListItem() {
+              this.buildSuggestionLoading()
+            }
+          } else if (this.chat.suggestedOptions.length > 0) {
+            ListItem() {
+              this.buildSuggestionPanel()
+            }
+          }
         }
         .width('100%')
         .height('100%')
@@ -71,6 +81,59 @@ export default struct MessageBoard {
     }
     .width('100%')
     .height('100%')
+  }
+
+  /** 3 条候选回复：放在最后一条 AI 回复下方，完整展示文本 */
+  @Builder
+  buildSuggestionPanel() {
+    Column({ space: 8 }) {
+      Text('选择一条继续')
+        .width('100%')
+        .fontSize(11)
+        .fontColor($r('app.color.text_secondary'))
+        .padding({ left: 2 })
+
+      ForEach(this.chat.suggestedOptions, (option: string, index: number) => {
+        Row({ space: 8 }) {
+          Text(`${index + 1}`)
+            .fontSize(11)
+            .fontColor($r('app.color.text_secondary'))
+            .width(14)
+          Text(option)
+            .layoutWeight(1)
+            .fontSize(14)
+            .lineHeight(21)
+            .fontColor($r('app.color.primary_font_color'))
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+        .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+        .borderRadius(12)
+        .backgroundColor($r('app.color.card_sub_bg'))
+        .border({ width: 1, color: $r('app.color.card_border') })
+        .onClick(() => {
+          this.chat.sendText(option)
+        })
+      }, (option: string, index: number) => `${index}-${option}`)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 2, bottom: 6 })
+  }
+
+  @Builder
+  buildSuggestionLoading() {
+    Row({ space: 6 }) {
+      LoadingProgress()
+        .width(12)
+        .height(12)
+        .color($r('app.color.text_secondary'))
+      Text('正在生成选项…')
+        .fontSize(11)
+        .fontColor($r('app.color.text_secondary'))
+    }
+    .width('100%')
+    .padding({ left: 4, top: 2, bottom: 2 })
   }
 
   @Builder
