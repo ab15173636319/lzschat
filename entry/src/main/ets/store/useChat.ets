@@ -16,9 +16,32 @@ const MAX_CONTEXT_CHARS = 32000
 const MEMORY_TOP_K = 3
 /** 生成选项时带上的最近消息条数 */
 const SUGGESTION_HISTORY = 12
-/** 生成「3 条用户可能想说的选项」的指令 */
-const SUGGESTION_SYSTEM_PROMPT = '你是一个对话续写助手。请站在用户的角度，根据给定的对话历史，生成 3 条用户接下来可能想说的简短回复选项。' +
-  '要求：每条不超过 20 个字；与对话内容紧密相关、风格自然；只输出 3 行文本，不要编号、不要引号、不要任何解释。'
+/** 生成「3 条玩家候选发言」的系统指令（不注入角色扮演提示词，避免模型顺着 AI 角色说话） */
+const SUGGESTION_SYSTEM_PROMPT = '你是一个「玩家发言候选生成器」。你的唯一任务是从玩家（用户）的第一人称视角，生成玩家接下来可能说的话。' +
+  '严禁扮演或生成任何角色（AI）的台词、旁白、动作描写或剧情续写，也不要以 AI 身份回复。' +
+  '只输出 3 行候选发言，每行一条；每条不超过 20 个字；不要编号、不要引号、不要解释、不要带「玩家：」等前缀。'
+
+/** 去掉选项行首的角色前缀（玩家发言可用） */
+function stripSpeakerLabel(line: string): string {
+  const labels: string[] = ['玩家：', '玩家:', '用户：', '用户:', '我：', '我:', '玩家 ', '用户 ']
+  for (const label of labels) {
+    if (line.startsWith(label)) {
+      return line.substring(label.length).trim()
+    }
+  }
+  return line
+}
+
+/** 判断这行是不是 AI/角色台词（生成结果应只包含玩家发言） */
+function isAssistantLine(line: string): boolean {
+  const prefixes: string[] = ['角色：', '角色:', 'AI：', 'AI:', 'ai：', 'ai:', '旁白：', '旁白:']
+  for (const prefix of prefixes) {
+    if (line.startsWith(prefix)) {
+      return true
+    }
+  }
+  return false
+}
 
 /** 去掉选项行前面的序号、项目符号、引号 */
 function stripOptionPrefix(line: string): string {
@@ -37,12 +60,21 @@ function stripOptionPrefix(line: string): string {
   return text.trim()
 }
 
-/** 把模型返回的多行文本解析成最多 3 条选项 */
+/** 把模型返回的多行文本解析成最多 3 条玩家候选发言 */
 function parseOptionLines(text: string): string[] {
   const result: string[] = []
   const lines = text.split('\n')
   for (const raw of lines) {
     let line = stripOptionPrefix(raw)
+    if (line.length === 0) {
+      continue
+    }
+    // 过滤掉模型误生成的 AI/角色台词
+    if (isAssistantLine(line)) {
+      continue
+    }
+    line = stripSpeakerLabel(line)
+    line = stripOptionPrefix(line)
     if (line.length === 0) {
       continue
     }
@@ -412,7 +444,8 @@ export class ChatStore {
    * 用简单向量库检索与当前话题相关的历史片段，拼成一段 memory system message。
    * includedIds 是已经放进最近上下文的消息，避免重复注入。
    */
-  private buildMemoryMessage(conversation: Conversation, includedIds: string[]): string {
+  private buildMemoryMessage(conversation: Conversation, includedIds: string[],
+    userLabel: string = '你', assistantLabel: string = 'AI'): string {
     const query = this.latestUserContent(conversation)
     if (query.length < 2) {
       return ''
@@ -424,7 +457,7 @@ export class ChatStore {
       if (includedIds.indexOf(hit.messageId) >= 0) {
         continue
       }
-      const speaker = hit.role === ChatRole.USER ? '你' : 'AI'
+      const speaker = hit.role === ChatRole.USER ? userLabel : assistantLabel
       const from = hit.conversationId === conversation.id ? '' : `来自「${hit.conversationTitle}」`
       lines.push(`- ${from}${speaker}：${hit.text}`)
       if (lines.length >= MEMORY_TOP_K) {
@@ -498,38 +531,42 @@ export class ChatStore {
     return history
   }
 
-  /** 组装「生成 3 条选项」的请求消息 */
+  /** 组装「生成 3 条玩家候选发言」的请求消息（不注入角色设定，历史按玩家/角色标注） */
   private buildSuggestionMessages(conversation: Conversation): ChatApiMessage[] {
     const messages: ChatApiMessage[] = []
-    const recent = conversation.messages.slice(-SUGGESTION_HISTORY)
-    const recentIds: string[] = []
-    for (const message of recent) {
-      recentIds.push(message.id)
-    }
-    let systemText = `${SUGGESTION_SYSTEM_PROMPT}\n\n角色设定：${this.systemPromptText()}`
-    const memoryText = this.buildMemoryMessage(conversation, recentIds)
-    if (memoryText.length > 0) {
-      systemText = `${systemText}\n\n${memoryText}`
-    }
-    const systemMessage: ChatApiMessage = { role: ChatRole.SYSTEM, content: systemText }
+    const systemMessage: ChatApiMessage = { role: ChatRole.SYSTEM, content: SUGGESTION_SYSTEM_PROMPT }
     messages.push(systemMessage)
 
+    const recent = conversation.messages.slice(-SUGGESTION_HISTORY)
+    const recentIds: string[] = []
+    const transcript: string[] = []
     for (const message of recent) {
+      recentIds.push(message.id)
       if (message.content.trim().length === 0) {
         continue
       }
       if (message.status === MessageStatus.ERROR) {
         continue
       }
-      const item: ChatApiMessage = { role: message.role, content: message.content }
-      messages.push(item)
+      const speaker = message.role === ChatRole.USER ? '玩家' : '角色'
+      transcript.push(`【${speaker}】${message.content.trim()}`)
     }
 
-    const instruction: ChatApiMessage = {
-      role: ChatRole.USER,
-      content: '请根据上面的对话，直接输出 3 条用户可能想继续说的选项，每行一条，不要编号、不要解释。'
+    const lines: string[] = []
+    const memoryText = this.buildMemoryMessage(conversation, recentIds, '玩家', '角色')
+    if (memoryText.length > 0) {
+      lines.push(memoryText)
+      lines.push('')
     }
-    messages.push(instruction)
+    lines.push('以下是最近的对话记录（【玩家】= 用户，【角色】= AI）：')
+    for (const entry of transcript) {
+      lines.push(entry)
+    }
+    lines.push('')
+    lines.push('请只从【玩家】的视角，输出玩家接下来可能说的 3 条候选发言。每行一条，不要编号、不要解释，不要生成【角色】的台词。')
+
+    const userMessage: ChatApiMessage = { role: ChatRole.USER, content: lines.join('\n') }
+    messages.push(userMessage)
     return messages
   }
 
@@ -554,7 +591,7 @@ export class ChatStore {
         url: profile.resolveChatUrl(),
         apiKey: profile.apiKey,
         model: profile.model.trim().length > 0 ? profile.model.trim() : 'deepseek-chat',
-        temperature: 0.8,
+        temperature: 0.7,
         maxTokens: 200,
         messages: this.buildSuggestionMessages(conversation)
       }

@@ -87,7 +87,7 @@ export default struct MessageBoard {
   @Builder
   buildSuggestionPanel() {
     Column({ space: 8 }) {
-      Text('选择一条继续')
+      Text('以你的身份继续（点击发送）')
         .width('100%')
         .fontSize(11)
         .fontColor($r('app.color.text_secondary'))
